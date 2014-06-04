@@ -112,8 +112,8 @@ init([Parent, Opts]) ->
     StatusBar = wxFrame:createStatusBar(Frame, []),
     try
 	TabId = table_id(Table),
-	ColumnNames = column_names(Node, Source, TabId),
 	KeyPos = key_pos(Node, Source, TabId),
+	ColumnNames = column_names(Node, Source, TabId, KeyPos),
 
 	Attrs = observer_lib:create_attrs(),
 
@@ -148,7 +148,7 @@ init([Parent, Opts]) ->
 	wxWindow:setSizer(Panel, Sizer),
 	wxSizer:hide(Sizer, Search#search.win),
 
-	Cols = add_columns(Grid, 0, ColumnNames),
+	Cols = add_columns(Grid, 0, ColumnNames, KeyPos),
 	wxFrame:show(Frame),
 	{Panel, #state{frame=Frame, grid=Grid, status=StatusBar, search=Search,
 		       sizer = Sizer,
@@ -160,7 +160,7 @@ init([Parent, Opts]) ->
 	    stop
     end.
 
-add_columns(Grid, Start, ColumnNames) ->
+add_columns(Grid, Start, ColumnNames, KeyPos) ->
     Li = wxListItem:new(),
 
     %% The old last column might be resized, so needs resetting to correct width.
@@ -170,10 +170,13 @@ add_columns(Grid, Start, ColumnNames) ->
     end,
 
     AddListEntry = fun(Name, Col) ->
-			   wxListItem:setText(Li, to_str(Name)),
-			   wxListItem:setAlign(Li, ?wxLIST_FORMAT_LEFT),
-			   wxListCtrl:insertColumn(Grid, Col, Li),
-			   wxListCtrl:setColumnWidth(Grid, Col, ?DEFAULT_COL_WIDTH),
+                           case Col+1 of
+                               KeyPos -> wxListItem:setText(Li, to_str(Name) ++ " *");
+                               _      -> wxListItem:setText(Li, to_str(Name))
+                           end,
+                           wxListItem:setAlign(Li, ?wxLIST_FORMAT_LEFT),
+                           wxListCtrl:insertColumn(Grid, Col, Li),
+                           wxListCtrl:setColumnWidth(Grid, Col, ?DEFAULT_COL_WIDTH),
 			   Col + 1
 		   end,
     Cols = lists:foldl(AddListEntry, Start, ColumnNames),
@@ -420,8 +423,9 @@ handle_info({no_rows, N}, State = #state{grid=Grid, status=StatusBar}) ->
     wxStatusBar:setStatusText(StatusBar, io_lib:format("Objects: ~w",[N])),
     {noreply, State};
 
-handle_info({new_cols, New}, State = #state{grid=Grid, columns=Cols0}) ->
-    Cols = add_columns(Grid, Cols0, New),
+handle_info({new_cols, New}, State = #state{grid=Grid, columns=Cols0, tab=Tab}) ->
+    KeyPos = Tab#tab.keypos,
+    Cols = add_columns(Grid, Cols0, New, KeyPos),
     {noreply, State#state{columns=Cols}};
 
 handle_info({refresh, Min, Min}, State = #state{grid=Grid}) ->
@@ -764,9 +768,9 @@ insert(Object, #holder{tabid=Id, source=Source, node=Node}) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-column_names(Node, Type, Table) ->
+column_names(Node, Type, Table, KeyPos) ->
     case Type of
-	ets -> [1];
+	ets -> lists:seq(1, KeyPos);
 	mnesia ->
 	    Attrs = rpc:call(Node, mnesia, table_info, [Table, attributes]),
 	    is_list(Attrs) orelse throw(node_or_table_down),
