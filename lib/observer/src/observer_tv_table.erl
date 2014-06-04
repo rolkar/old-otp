@@ -162,6 +162,13 @@ init([Parent, Opts]) ->
 
 add_columns(Grid, Start, ColumnNames) ->
     Li = wxListItem:new(),
+
+    %% The old last column might be resized, so needs resetting to correct width.
+    case Start of
+	0 -> ignore;
+	_ -> wxListCtrl:setColumnWidth(Grid, Start-1, ?DEFAULT_COL_WIDTH)
+    end,
+
     AddListEntry = fun(Name, Col) ->
 			   wxListItem:setText(Li, to_str(Name)),
 			   wxListItem:setAlign(Li, ?wxLIST_FORMAT_LEFT),
@@ -170,6 +177,18 @@ add_columns(Grid, Start, ColumnNames) ->
 			   Col + 1
 		   end,
     Cols = lists:foldl(AddListEntry, Start, ColumnNames),
+
+    %% The new last column needs to be adjusted so it fills the table width
+    {Width, _Height} = wxListCtrl:getSize(Grid),
+    LastWidth = Width - 
+	lists:sum([wxListCtrl:getColumnWidth(Grid, Col) || Col <- lists:seq(0,Cols-2) ]),
+    if
+	LastWidth > ?DEFAULT_COL_WIDTH ->
+	    wxListCtrl:setColumnWidth(Grid, Cols-1, LastWidth);
+	true ->
+	    ignore
+    end,
+
     wxListItem:destroy(Li),
     Cols.
 
@@ -747,7 +766,7 @@ insert(Object, #holder{tabid=Id, source=Source, node=Node}) ->
 
 column_names(Node, Type, Table) ->
     case Type of
-	ets -> [1, 2];
+	ets -> [1];
 	mnesia ->
 	    Attrs = rpc:call(Node, mnesia, table_info, [Table, attributes]),
 	    is_list(Attrs) orelse throw(node_or_table_down),
