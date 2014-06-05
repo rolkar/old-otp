@@ -155,7 +155,12 @@ init([Parent, Opts]) ->
 		       sizer = Sizer,
 		       parent=Parent, columns=Cols,
 		       pid=Holder, source=Source,
+
+                       %% TODO: I think keypos and index already are
+                       %% set in Table. So, computing them and setting
+                       %% them here is maybe not necessary.
                        tab=Table#tab{keypos=KeyPos, index=IndicesPos},
+
 		       attrs=Attrs}}
     catch node_or_table_down ->
 	    wxFrame:destroy(Frame),
