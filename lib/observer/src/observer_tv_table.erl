@@ -113,6 +113,7 @@ init([Parent, Opts]) ->
     try
 	TabId = table_id(Table),
 	KeyPos = key_pos(Node, Source, TabId),
+	IndicesPos = indices_pos(Node, Source, TabId),
 	ColumnNames = column_names(Node, Source, TabId, KeyPos),
 
 	Attrs = observer_lib:create_attrs(),
@@ -148,19 +149,20 @@ init([Parent, Opts]) ->
 	wxWindow:setSizer(Panel, Sizer),
 	wxSizer:hide(Sizer, Search#search.win),
 
-	Cols = add_columns(Grid, 0, ColumnNames, KeyPos),
+	Cols = add_columns(Grid, 0, ColumnNames, KeyPos, IndicesPos),
 	wxFrame:show(Frame),
 	{Panel, #state{frame=Frame, grid=Grid, status=StatusBar, search=Search,
 		       sizer = Sizer,
 		       parent=Parent, columns=Cols,
-		       pid=Holder, source=Source, tab=Table#tab{keypos=KeyPos},
+		       pid=Holder, source=Source,
+                       tab=Table#tab{keypos=KeyPos, index=IndicesPos},
 		       attrs=Attrs}}
     catch node_or_table_down ->
 	    wxFrame:destroy(Frame),
 	    stop
     end.
 
-add_columns(Grid, Start, ColumnNames, KeyPos) ->
+add_columns(Grid, Start, ColumnNames, KeyPos, IndicesPos) ->
     Li = wxListItem:new(),
 
     %% The old last column might be resized, so needs resetting to correct width.
@@ -170,9 +172,11 @@ add_columns(Grid, Start, ColumnNames, KeyPos) ->
     end,
 
     AddListEntry = fun(Name, Col) ->
-                           case Col+1 of
-                               KeyPos -> wxListItem:setText(Li, to_str(Name) ++ " *");
-                               _      -> wxListItem:setText(Li, to_str(Name))
+                           case {Col+1,lists:member(Col+1,IndicesPos)} of
+                               {KeyPos,true } -> wxListItem:setText(Li, to_str(Name) ++ "  /KEY /IDX");
+                               {KeyPos,false} -> wxListItem:setText(Li, to_str(Name) ++ "  /KEY");
+                               {_,     true } -> wxListItem:setText(Li, to_str(Name) ++ "  /IDX");
+                               {_,     _    } -> wxListItem:setText(Li, to_str(Name))
                            end,
                            wxListItem:setAlign(Li, ?wxLIST_FORMAT_LEFT),
                            wxListCtrl:insertColumn(Grid, Col, Li),
@@ -425,7 +429,8 @@ handle_info({no_rows, N}, State = #state{grid=Grid, status=StatusBar}) ->
 
 handle_info({new_cols, New}, State = #state{grid=Grid, columns=Cols0, tab=Tab}) ->
     KeyPos = Tab#tab.keypos,
-    Cols = add_columns(Grid, Cols0, New, KeyPos),
+    IndicesPos = Tab#tab.index,
+    Cols = add_columns(Grid, Cols0, New, KeyPos, IndicesPos),
     {noreply, State#state{columns=Cols}};
 
 handle_info({refresh, Min, Min}, State = #state{grid=Grid}) ->
@@ -785,6 +790,12 @@ key_pos(Node, ets, TabId) ->
     KeyPos = rpc:call(Node, ets, info, [TabId, keypos]),
     is_integer(KeyPos) orelse throw(node_or_table_down),
     KeyPos.
+
+indices_pos(_, ets, _) -> [];
+indices_pos(Node, mnesia, TabId) ->
+    IndicesPos = rpc:call(Node, mnesia, table_info, [TabId, index]),
+    is_list(IndicesPos) orelse throw(node_or_table_down),
+    IndicesPos.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
